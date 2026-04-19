@@ -18,6 +18,6 @@ function read_raw(subj_id)
         return data
     end
 
-    return hdr, data
+    return hdr, Float64.(data)
 end
 

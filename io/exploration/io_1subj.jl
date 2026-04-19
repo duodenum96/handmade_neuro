@@ -15,3 +15,8 @@ data = open(data_path, "r") do io
     return data
 end
 
+data = Float64.(data)
+hdr = zaa
+
+event = hdr["event"]
+# event["latency"] (in ms)
