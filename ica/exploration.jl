@@ -259,48 +259,54 @@ Repeat for each datapoint x⃗:
 ---
 """
 
-s = rand(2, 1000) # NOTE: memory layout should be column major, just being lazy now
-G = [0.2 0.4; 0.3 0.5]
+# test case from https://www.geeksforgeeks.org/machine-learning/ml-independent-component-analysis/
+N = 3
+M = 1000
+t = 1:M
+sine = sin.(2 * pi * 0.01 * (1:M))
+sine2 = sign.(sin.(2 * pi * 0.05 * (1:M)))
+s3 = rand(Laplace(), M)
+period = 50
+s = [sine'; sine2'; s3']
+
+s .+= 0.1 * randn(size(s))
+
+G = [0.4 0.6 0.2; 0.2 0.9 0.3; 1 1 1]
 x = G * s
 
 # Demean and whiten x
-#
-μ = mean(x, dims=1)
+μ = mean(x, dims=2)
 _x = x .- μ
-whitening_matrix = sqrt(inv(cov(_x')))
-inv_cov = inv(cov(_x'))
-isapprox(whitening_matrix' * whitening_matrix, inv_cov)
+
+eigvals, E = eigen(cov(_x'))
+D = Diagonal(eigvals)
+whitening_matrix = sqrt(pinv(D)) * E'
 __x = whitening_matrix * _x
-cov(__x')
 
-# Calculate the whitening filter.
-E, D = eigen(cov(_x'));
-# % Whiten the data
-X_w = sqrt(pinv(D)) * E' * _x;
-
-k = 0.0001
-n_iterations = 1000
+k = 0.01
+n_iterations = 50000
 
 # density(x[1, :])
 # density!(s[1, :])
 
 # Initialize the algorithm variables
 # k
-W = [1.0 0.1; 0.1 1.0]
+global W = randn(N, N) # unmixing matrix
 a = zeros(eltype(x), size(x, 1)) # NOTE: being a little wasteful with the memory here
 z = zeros(eltype(x), size(x, 1))
 x′ = zeros(eltype(x), size(x, 1))
 ΔW = zeros(eltype(W[1, 1]), size(W))
 
 for n in 1:n_iterations
-    for x_i in eachslice(__x, dims=2)
+    Threads.@threads for x_i in eachslice(__x, dims=2)
+        global W
         # x_i = eachslice(__x, dims=2)[3]
         a = W * x_i
         z = -tanh.(a)
         x′ = W' * a
-        # ΔW = W + z * x′'
+        ΔW = W + z * x′'
         # ΔW = (I - z * a') * W
-        ΔW = z * x′'
+        # ΔW = z * x′'
         W += k * ΔW
     end
     println(n)
@@ -309,14 +315,24 @@ end
 println(G)
 println(inv(W))
 
-y = inv(whitening_matrix) * W * (__x) .+ μ
-# y = W * (_x .+ μ)
-s
+# y = inv(whitening_matrix) * W * (__x) .+ μ
+# y = W * (__x .+ μ)
 
-lines(y[1, :])
-lines!(s[1, :])
+S = W' * __x
+
+fig = Figure()
+for i in 1:N
+    ax = Axis(fig[1, i])
+    lines!(ax, S[i, :])
+end
+for i in 1:N
+    ax = Axis(fig[2, i])
+    lines!(ax, s[i, :])
+end
+
 
 # Try fastICA
+# test case from https://www.geeksforgeeks.org/machine-learning/ml-independent-component-analysis/
 N = 3
 M = 1000
 t = 1:M
@@ -331,6 +347,7 @@ s .+= 0.1 * randn(size(s))
 
 G = [0.4 0.6 0.2; 0.2 0.9 0.3; 1 1 1]
 x = G * s
+
 
 density(x[1, :])
 lines(x[2, :])
