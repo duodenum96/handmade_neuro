@@ -260,18 +260,22 @@ Repeat for each datapoint x⃗:
 """
 
 # test case from https://www.geeksforgeeks.org/machine-learning/ml-independent-component-analysis/
-N = 3
+N = 4
 M = 1000
 t = 1:M
 sine = sin.(2 * pi * 0.01 * (1:M))
-sine2 = sign.(sin.(2 * pi * 0.05 * (1:M)))
+sine2 = sign.(sin.(2 * pi * 0.06 * (1:M)))
 s3 = rand(Laplace(), M)
+comp4 = mod.(t * 0.01, 3.0)
 period = 50
-s = [sine'; sine2'; s3']
+s = [sine'; sine2'; s3'; comp4']
+
+lines(comp4)
 
 s .+= 0.1 * randn(size(s))
 
-G = [0.4 0.6 0.2; 0.2 0.9 0.3; 1 1 1]
+# G = [0.4 0.6 0.2; 0.2 0.9 0.3; 1 1 1]
+G = 3.0 .+ randn(N, N)
 x = G * s
 
 # Demean and whiten x
@@ -284,70 +288,78 @@ whitening_matrix = sqrt(pinv(D)) * E'
 __x = whitening_matrix * _x
 
 k = 0.01
-n_iterations = 50000
+n_iterations = 5000
 
 # density(x[1, :])
 # density!(s[1, :])
 
 # Initialize the algorithm variables
 # k
-global W = randn(N, N) # unmixing matrix
+global W = 2.0 .+ randn(N, N) # unmixing matrix
 a = zeros(eltype(x), size(x, 1)) # NOTE: being a little wasteful with the memory here
 z = zeros(eltype(x), size(x, 1))
 x′ = zeros(eltype(x), size(x, 1))
 ΔW = zeros(eltype(W[1, 1]), size(W))
+change = 0.0
 
-for n in 1:n_iterations
+n = 0
+global converged = false
+while n < n_iterations && !converged
+    n += 1
     Threads.@threads for x_i in eachslice(__x, dims=2)
         global W
+        W_next = copy(W)
         # x_i = eachslice(__x, dims=2)[3]
         a = W * x_i
         z = -tanh.(a)
         x′ = W' * a
-        ΔW = W + z * x′'
+        # ΔW = W + z * x′'
         # ΔW = (I - z * a') * W
-        # ΔW = z * x′'
+        ΔW = z * x′'
         W += k * ΔW
     end
+    change = sum(abs.(W_next .- W))
+    W_next = copy(W)
+    global converged = change < 1e-8
     println(n)
 end
-
-println(G)
-println(inv(W))
-
-# y = inv(whitening_matrix) * W * (__x) .+ μ
-# y = W * (__x .+ μ)
 
 S = W' * __x
 
 fig = Figure()
 for i in 1:N
-    ax = Axis(fig[1, i])
+    ax = Axis(fig[1, i], title="recovered")
     lines!(ax, S[i, :])
 end
 for i in 1:N
-    ax = Axis(fig[2, i])
+    ax = Axis(fig[2, i], title="source")
     lines!(ax, s[i, :])
+end
+for i in 1:N
+    ax = Axis(fig[3, i], title="x")
+    lines!(ax, __x[i, :])
 end
 
 
 # Try fastICA
 # test case from https://www.geeksforgeeks.org/machine-learning/ml-independent-component-analysis/
-N = 3
+
+N = 4
 M = 1000
 t = 1:M
-sine = sin.(2 * pi * 0.01 * (1:M))
-sine2 = sign.(sin.(2 * pi * 0.05 * (1:M)))
+sine = sin.(2 * pi * 0.01 * (1:M)) .* 3
+sine2 = sign.(sin.(2 * pi * 0.005 * (1:M))) .* 3
 s3 = rand(Laplace(), M)
 period = 50
-s = [sine'; sine2'; s3']
+comp4 = mod.(t * 0.01, 3.0)
+s = [sine'; sine2'; s3'; comp4']
 
 s .+= 0.1 * randn(size(s))
 
 
-G = [0.4 0.6 0.2; 0.2 0.9 0.3; 1 1 1]
+# G = [0.4 0.6 0.2; 0.2 0.9 0.3; 1 1 1]
+G = 1.0 .+ randn(N, N)
 x = G * s
-
 
 density(x[1, :])
 lines(x[2, :])
@@ -361,7 +373,7 @@ whitening_matrix = sqrt(pinv(D)) * E'
 __x = whitening_matrix * _x
 # cov(__x') (check)
 
-f_method = :exp
+f_method = :logcosh
 
 if f_method == :logcosh
     f(u) = log(cosh(u))
@@ -380,9 +392,15 @@ W = randn(N, C) # unmixing matrix
 S = randn(C, M)  # independent component matrix
 X = __x
 
+W_previous = copy(W)
+change = 0
 for p in 1:C
     w_p = randn(N)
-    for i in 1:50000
+    w_p_previous = copy(w_p)
+    i = 0
+    converged = false
+    while i < 200000 && !converged
+        i += 1
         w_p = (1 / M) * (
             X * g.(w_p' * X)' .- g′.(w_p' * X) * m1 .* w_p
         )
@@ -394,11 +412,19 @@ for p in 1:C
         for j in 1:(p-1)
             w_j = view(W, :, j)
             w_p .-= w_p' * w_j .* w_j
+            # w_p .-= w_p' * (w_j .* w_j)
         end
 
         w_p = w_p ./ norm(w_p)
+        change = sum(abs.(w_p_previous .- w_p))
+        w_p_previous = copy(w_p)
+        converged = change < 1e-6
+        if converged
+            println("yay")
+        end
     end
     W[:, p] = w_p
+
 end
 S = W' * X
 
@@ -415,4 +441,71 @@ for i in 1:C
     ax = Axis(fig[2, i])
     lines!(ax, s[i, :])
 end
+for i in 1:N
+    ax = Axis(fig[3, i], title="x")
+    lines!(ax, __x[i, :])
+end
 
+# do infomax 
+# https://pubmed.ncbi.nlm.nih.gov/7584893/
+
+N = 4
+M = 1000
+t = 1:M
+sine = sin.(2 * pi * 0.01 * (1:M))
+sine2 = sign.(sin.(2 * pi * 0.05 * (1:M)))
+s3 = rand(Laplace(), M)
+period = 50
+s = [sine'; sine2'; s3']
+
+s .+= 0.1 * randn(size(s))
+
+
+G = 3.0 .+ randn(N, N)
+x = G * s
+
+μ = mean(x, dims=2)
+_x = x .- μ
+
+eigvals, E = eigen(cov(_x'))
+D = Diagonal(eigvals)
+whitening_matrix = sqrt(pinv(D)) * E'
+__x = whitening_matrix * _x
+
+
+function permutation(A)
+    m = size(A, 1)
+    p = randperm(m)
+    A_perm = view(A, p, :)
+    return A_perm, p
+end
+
+
+l_rate = 0.01 / log(N^2.0)
+C = N # number of desired components
+W = randn(N, C) # unmixing matrix
+U = randn(C, M)  # independent component matrix
+X = __x
+for i in 1:50000
+    U = W * permutation(X)[1]
+    Y = -tanh.(U ./ 2)
+    YU = Y * U' + I
+    W .+= l_rate * YU * W
+end
+
+
+S = W' * X
+
+s_recons = pinv(whitening_matrix) * S .+ μ
+
+s
+
+fig = Figure()
+for i in 1:N
+    ax = Axis(fig[1, i])
+    lines!(ax, S[i, :])
+end
+for i in 1:C
+    ax = Axis(fig[2, i])
+    lines!(ax, s[i, :])
+end
