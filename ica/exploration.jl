@@ -396,6 +396,7 @@ W_previous = copy(W)
 change = 0
 for p in 1:C
     w_p = randn(N)
+    w_p = w_p ./ norm(w_p)
     w_p_previous = copy(w_p)
     i = 0
     converged = false
